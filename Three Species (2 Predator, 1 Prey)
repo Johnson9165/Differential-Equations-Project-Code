@@ -1,0 +1,131 @@
+# This example describe how to integrate ODEs with scipy.integrate module, and how
+# to use the matplotlib module to plot trajectories, direction fields and other
+# useful information.
+#
+# == Presentation of the Lokta-Volterra Model ==
+#
+# We will have a look at the Lokta-Volterra model, also known as the
+# predator-prey equations, which are a pair of first order, non-linear, differential
+# equations frequently used to describe the dynamics of biological systems in
+# which two species interact, one a predator and one its prey. They were proposed
+# independently by Alfred J. Lotka in 1925 and Vito Volterra in 1926:
+# du/dt =  a*u -   b*u*v
+# dv/dt = -c*v + d*b*u*v
+#
+# with the following notations:
+#
+# *  u: number of preys (for example, rabbits)
+#
+# *  v: number of predators (for example, foxes)
+#
+# * a, b, c, d are constant parameters defining the behavior of the population:
+#
+#   + a is the natural growing rate of rabbits, when there's no fox
+#
+#   + b is the natural dying rate of rabbits, due to predation
+#
+#   + c is the natural dying rate of fox, when there's no rabbit
+#
+#   + d is the factor describing how many caught rabbits let create a new fox
+#
+# We will use X=[u, v] to describe the state of both populations.
+#
+# Definition of the equations:
+#
+from numpy import *
+import pylab as p
+
+# Definition of parameters
+r = 40.
+k = 15
+B_1 = .7
+B_2 = .6
+a_y = .9
+a_z = .75
+u = 0.05
+w = 0.1
+a_12 = 0.2
+a_21 = 0.25
+
+
+def dX_dt(X, t=0):
+    """ Return the growth rate of fox and rabbit populations. """
+    return array([X[0] * (r-((r/k)*X[0])) - B_1 * X[0] * X[1] - B_2 * X[0] * X[2],
+                 X[1] * B_1 * X[0] * (1 - (X[1]/(a_y * X[0]))) - u * X[1] - a_12 * X[1] * X[2],
+                 X[2] * B_2 * X[0] * (1 - (X[2]/(a_z * X[0]))) - w * X[2] - a_21 * X[1] * X[2]])
+#
+# === Population equilibrium ===
+#
+# Before using !SciPy to integrate this system, we will have a closer look on
+# position equilibrium. Equilibrium occurs when the growth rate is equal to 0.
+# This gives two fixed points:
+#
+X_f0 = array([ 0., 0., 0.])
+X_f1 = array([ k, 0., 0.])
+X_f2 = array([ (r+w*a_z)*(k/(r+k*B_2*a_z)), 0., (a_z/B_2)*(B_2*(r+w*a_z)*(k/(r+k*B_2*a_z))-w)])
+X_f3 = array([ (r+u*a_y)*(k/(r+k*B_1*a_y)), (a_y/B_1)*(B_1*(r+w*a_y)*(k/(r+k*B_1*a_y))-u), 0.])
+all(dX_dt(X_f0) == zeros(3)) and all(dX_dt(X_f1) == zeros(3)) and all(dX_dt(X_f2) == zeros(3)) and all(dX_dt(X_f3) == zeros(3))  # => True
+#
+# === Stability of the fixed points ===
+# Near theses two points, the system can be linearized:
+# dX_dt = A_f*X where A is the Jacobian matrix evaluated at the corresponding point.
+# We have to define the Jacobian matrix:
+#
+def d2X_dt2(X, t=0):
+    """ Return the Jacobian matrix evaluated in X. """
+    return array([[r - 2. * (r / k) * X[0],   -B_1 * X[1], -B_2 * X[2]],
+                  [B_1 * X[1], B_1 * X[0] - 2 * (B_1 / a_y) *X[1] - u - a_12 * X[2], -a_12 * X[1]],
+                  [B_2 * X[2], -a_21 * X[2], B_2 * X[0] - 2 * (B_2 / a_z) *X[2] - w - a_21 * X[1]]])
+#
+# So, near X_f0, which represents the extinction of both species, we have:
+# A_f0 = d2X_dt2(X_f0)                    # >>> array([[ 1. , -0. ],
+#                                         #            [ 0. , -1.5]])
+#
+# Near X_f0, the number of rabbits increase and the population of foxes decrease.
+# The origin is a [http://en.wikipedia.org/wiki/Saddle_point saddle point].
+#
+# Near X_f1, we have:
+A_f1 = d2X_dt2(X_f0)                    # >>> array([[ 0.  , -2.  ],
+                                        #            [ 0.75,  0.  ]])
+
+# whose eigenvalues are +/- sqrt(c*a).j:
+lambda1, lambda2, lambda3 = linalg.eigvals(A_f1) # >>> (1.22474j, -1.22474j)
+print(lambda1, lambda2, lambda3)
+
+# They are imaginary number, so the fox and rabbit populations are periodic and
+# their period is given by:
+T_f1 = 2*pi/abs(lambda1)                # >>> 5.130199
+#
+# == Integrating the ODE using scipy.integate ==
+#
+# Now we will use the scipy.integrate module to integrate the ODEs.
+# This module offers a method named odeint, very easy to use to integrate ODEs:
+#
+from scipy import integrate
+
+t = linspace(0, 8,  1000)             # time
+X0 = array([17, 5, 7])                     # initials conditions: 10 rabbits and 5 foxes
+
+X, infodict = integrate.odeint(dX_dt, X0, t, full_output=True)
+infodict['message']                     # >>> 'Integration successful.'
+#
+# `infodict` is optional, and you can omit the `full_output` argument if you don't want it.
+# Type "info(odeint)" if you want more information about odeint inputs and outputs.
+#
+# We can now use Matplotlib to plot the evolution of both populations:
+#
+rabbits, foxes, pred_2 = X.T
+
+f1 = p.figure()
+p.plot(t, rabbits, 'b-', label='Prey')
+p.plot(t, foxes, 'r-', label='Predator 1')
+p.plot(t, pred_2, 'g-', label='Predator 2')
+p.grid()
+p.legend(loc='best')
+p.xlabel('Time')
+p.ylabel('Population')
+p.title('Evolution of Prey and Predator Populations')
+f1.savefig('rabbits_and_foxes_1.png')
+
+p.show()
+
